@@ -14,6 +14,11 @@ The project is one part of a three-repository release pipeline:
 - This repository assembles the VM image from Arch Linux ARM and that signed
   repository. It does not build or carry local package artifacts.
 
+`main` is this repository's only long-lived development branch. Image releases
+are immutable `v*-virt.*` tags built from reviewed commits on `main`; package
+channels and runtime release lines do not create matching image branches.
+Temporary integration branches are deleted after their commits reach `main`.
+
 Keeping the repositories as siblings is convenient for development:
 
 ```text
@@ -58,7 +63,7 @@ The image installs the runtime-owned stable/RC/edge mapping, a repository
 fragment, and the matching `pre-refresh-pacman` hook. Stable is the factory
 default; `omarchy-channel-set` can then select stable, RC, edge, or dev without
 depending on GitHub's repository-wide `latest` alias. Dev follows the edge
-package repository and links the adapted `aarch64-quattro` source, matching
+package repository and links the adapted canonical `quattro` source, matching
 upstream's three-repository/four-choice model.
 
 The source commit and signing fingerprint remain deliberate image release

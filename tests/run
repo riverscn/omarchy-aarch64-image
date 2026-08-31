@@ -340,7 +340,7 @@ pass "AArch64 repository and exclusion manifests are disjoint"
     | .state.commit = .commit' \
     "$fixture/repository-manifest.json" >"$fixture/wrong-package-commit.json"
   rejects_manifest "$fixture/wrong-package-commit.json" "the wrong package commit"
-  jq '(.state.packages[] | select(.name == "omarchy-settings").version) = "4.0.2-2"' \
+  jq '(.state.packages[] | select(.name == "omarchy-settings").version) = "4.0.2-3"' \
     "$fixture/repository-manifest.json" >"$fixture/wrong-runtime-version.json"
   rejects_manifest "$fixture/wrong-runtime-version.json" "a divergent runtime package version"
   pass "signed stable repository manifest matches the pinned source, package version, and package commit"
