@@ -177,6 +177,7 @@ fi
     fail "aarch64-virt mkinitcpio hook filter produced: ${HOOKS[*]}"
 
   MOUNT_DIR="$fixture/target"
+  OMARCHY_SOURCE_DIR=$OMARCHY_TEST_SOURCE
   hook_dir="$MOUNT_DIR/etc/pacman.d/hooks"
   hook_name=90-mkinitcpio-install.hook
   mkdir -p "$hook_dir"
@@ -196,6 +197,9 @@ fi
     "$MOUNT_DIR/etc/pacman.conf" || fail "signed repository include was not installed"
   grep -qxF 'SigLevel = Required' "$MOUNT_DIR/etc/pacman.d/omarchy-aarch64.conf" ||
     fail "signed repository does not require signatures"
+  cmp -s "$OMARCHY_TEST_SOURCE/default/pacman/omarchy-aarch64-repositories.conf" \
+    "$MOUNT_DIR/etc/omarchy-aarch64/repositories.conf" ||
+    fail "image did not install the runtime-owned channel mapping"
   write_omarchy_repository_configuration file:///run/omarchy-aarch64-repository
   grep -qxF 'Server = file:///run/omarchy-aarch64-repository' \
     "$MOUNT_DIR/etc/pacman.d/omarchy-aarch64.conf" ||
@@ -205,6 +209,9 @@ fi
     "$MOUNT_DIR/etc/pacman.d/omarchy-aarch64.conf" ||
     fail "development builds do not restore the public update repository"
   bash -n "$MOUNT_DIR/etc/skel/.config/omarchy/hooks/pre-refresh-pacman.d/omarchy-aarch64-repository"
+  cmp -s "$OMARCHY_TEST_SOURCE/default/pacman/omarchy-aarch64-pre-refresh" \
+    "$MOUNT_DIR/etc/skel/.config/omarchy/hooks/pre-refresh-pacman.d/omarchy-aarch64-repository" ||
+    fail "image duplicated the runtime refresh hook instead of installing it"
 
   for package in kdenlive libreoffice-fresh moonlight-qt hyprsunset gpu-screen-recorder; do
     grep -qx "$package" "$PROFILE_DIR/excluded-packages" ||
@@ -492,8 +499,13 @@ if rg -n 'asahi-alarm|grub-install' "$ROOT/bin" "$ROOT/config" "$ROOT/profiles" 
 fi
 pass "active image orchestration is independent of Apple, Asahi, and GRUB"
 
-grep -q '^OMARCHY_AARCH64_REPOSITORY_URL=https://github.com/riverscn/omarchy-pkgs-aarch64/releases/latest/download$' \
-  "$ROOT/sources.env" || fail "image source does not track the latest stable AArch64 repository release"
+grep -q '^OMARCHY_AARCH64_REPOSITORY_URL=https://github.com/riverscn/omarchy-pkgs-aarch64/releases/download/aarch64-stable$' \
+  "$ROOT/sources.env" || fail "image source does not use the explicit stable AArch64 repository release"
+for channel in stable rc edge; do
+  grep -q "^$channel=https://github.com/riverscn/omarchy-pkgs-aarch64/releases/download/aarch64-$channel$" \
+    "$OMARCHY_TEST_SOURCE/default/pacman/omarchy-aarch64-repositories.conf" ||
+    fail "runtime source does not map the $channel AArch64 package channel"
+done
 grep -Fq 'target_chroot pacman-key --lsign-key "$OMARCHY_AARCH64_SIGNING_FINGERPRINT"' \
   "$ROOT/bin/build-image" || fail "repository bootstrap key is not locally trusted"
 grep -Fq 'pre-refresh-pacman.d/omarchy-aarch64-repository' "$ROOT/bin/build-image" ||

@@ -25,13 +25,13 @@ workspace/
 
 ## Package source and updates
 
-Image builds consume the complete signed repository published by the latest
-`omarchy-pkgs-aarch64` GitHub Release:
+Image builds consume the complete signed repository published by the explicit
+stable `omarchy-pkgs-aarch64` GitHub Release:
 
 ```ini
 [omarchy]
 SigLevel = Required
-Server = https://github.com/riverscn/omarchy-pkgs-aarch64/releases/latest/download
+Server = https://github.com/riverscn/omarchy-pkgs-aarch64/releases/download/aarch64-stable
 ```
 
 The builder downloads the Release manifest and public key on every build. It
@@ -53,12 +53,15 @@ sudo pacman -Syu
 ```
 
 Omarchy's `refresh pacman` command intentionally regenerates `pacman.conf`.
-The image installs a repository fragment plus a `pre-refresh-pacman` hook so
-that this operation also restores the signed AArch64 repository before it runs
-the upgrade.
+The image installs the runtime-owned stable/RC/edge mapping, a repository
+fragment, and the matching `pre-refresh-pacman` hook. Stable is the factory
+default; `omarchy-channel-set` can then select stable, RC, edge, or dev without
+depending on GitHub's repository-wide `latest` alias. Dev follows the edge
+package repository and links the adapted `aarch64-quattro` source, matching
+upstream's three-repository/four-choice model.
 
 The source commit and signing fingerprint remain deliberate image release
-boundaries. If the latest package snapshot moves to a newer Omarchy commit,
+boundaries. If the stable package snapshot moves to a newer Omarchy commit,
 update `OMARCHY_AARCH64_REF` after reviewing that source update; until then the
 image build fails instead of combining mismatched source and packages.
 
@@ -207,16 +210,18 @@ the two together to test unpublished source and package changes:
 ```
 
 The local repository is mounted read-only and is used only while assembling
-the image. The installed guest still points at the latest GitHub Release, so a
-successful test image follows the normal update channel without rebuilding.
+the image. The installed guest still points at the explicit stable GitHub
+Release, so a successful test image follows the normal stable update channel
+without rebuilding.
 The source commit must match the `omarchy` version recorded in the repository
 manifest.
 
 The Arch Linux ARM rootfs is verified with its signing key and pinned signer
 fingerprint. Node.js is checked against its published SHA-256 list. Cached
 rootfs, keyring, Node.js, and pacman package downloads are reused by default;
-`--refresh` refreshes rolling non-repository inputs. Release metadata is always
-downloaded again so `releases/latest` cannot be mistaken for a stale snapshot.
+`--refresh` refreshes rolling non-repository inputs. Stable Release metadata is
+always downloaded again so a cached manifest cannot be mistaken for the
+current channel snapshot.
 
 The default artifact is `build/omarchy-aarch64-virt.qcow2`. Existing outputs
 are not replaced unless `--force` is supplied. A successful build also emits:

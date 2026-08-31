@@ -780,10 +780,24 @@ write_omarchy_repository_configuration() {
   local server=${1:-$OMARCHY_AARCH64_REPOSITORY_URL}
   local pacman_conf="$MOUNT_DIR/etc/pacman.conf"
   local repository_conf="$MOUNT_DIR/etc/pacman.d/omarchy-aarch64.conf"
+  local repositories_conf="$MOUNT_DIR/etc/omarchy-aarch64/repositories.conf"
+  local repositories_template="$OMARCHY_SOURCE_DIR/default/pacman/omarchy-aarch64-repositories.conf"
   local include='Include = /etc/pacman.d/omarchy-aarch64.conf'
   local hook="$MOUNT_DIR/etc/skel/.config/omarchy/hooks/pre-refresh-pacman.d/omarchy-aarch64-repository"
+  local hook_source="$OMARCHY_SOURCE_DIR/default/pacman/omarchy-aarch64-pre-refresh"
+  local stable_server
 
-  install -d -m755 "${repository_conf%/*}" "${hook%/*}"
+  [[ -f $repositories_template ]] ||
+    fail "AArch64 repository mapping is missing from the selected Omarchy source"
+  [[ -f $hook_source ]] ||
+    fail "AArch64 pacman refresh hook is missing from the selected Omarchy source"
+  stable_server=$(awk -F= '$1 == "stable" {sub(/^[^=]*=/, ""); print; exit}' \
+    "$repositories_template")
+  [[ $stable_server == "$OMARCHY_AARCH64_REPOSITORY_URL" ]] ||
+    fail "image stable repository and Omarchy channel mapping disagree"
+
+  install -d -m755 "${repository_conf%/*}" "${repositories_conf%/*}" "${hook%/*}"
+  install -m644 "$repositories_template" "$repositories_conf"
   cat >"$repository_conf" <<EOF
 # Managed by omarchy-aarch64-image.
 [omarchy]
@@ -795,20 +809,7 @@ EOF
     sed -i "0,/^\[core\]/s||$include\n\n[core]|" "$pacman_conf"
   fi
 
-  cat >"$hook" <<'EOF'
-#!/bin/bash
-
-# omarchy-refresh-pacman replaces /etc/pacman.conf from its channel template.
-# Restore the signed AArch64 repository include before the upgrade proceeds.
-set -euo pipefail
-
-readonly CONF=/etc/pacman.conf
-readonly INCLUDE='Include = /etc/pacman.d/omarchy-aarch64.conf'
-
-grep -qxF "$INCLUDE" "$CONF" && exit 0
-sudo sed -i "0,/^\[core\]/s||$INCLUDE\n\n[core]|" "$CONF"
-EOF
-  chmod 755 "$hook"
+  install -m755 "$hook_source" "$hook"
 }
 
 configure_package_manager() {
@@ -1177,6 +1178,12 @@ validate_target() {
   grep -qxF "Server = $OMARCHY_AARCH64_REPOSITORY_URL" \
     "$MOUNT_DIR/etc/pacman.d/omarchy-aarch64.conf" ||
     fail "target validation failed: the Omarchy AArch64 repository URL is incorrect"
+  cmp -s "$OMARCHY_SOURCE_DIR/default/pacman/omarchy-aarch64-repositories.conf" \
+    "$MOUNT_DIR/etc/omarchy-aarch64/repositories.conf" ||
+    fail "target validation failed: the Omarchy AArch64 channel mapping is incorrect"
+  cmp -s "$OMARCHY_SOURCE_DIR/default/pacman/omarchy-aarch64-pre-refresh" \
+    "$MOUNT_DIR/etc/skel/.config/omarchy/hooks/pre-refresh-pacman.d/omarchy-aarch64-repository" ||
+    fail "target validation failed: the Omarchy AArch64 refresh hook is incorrect"
   if grep -q '^\[multilib\]$' "$MOUNT_DIR/etc/pacman.conf"; then
     fail "target validation failed: the x86-only multilib repository remains enabled"
   fi
@@ -1415,7 +1422,7 @@ main() {
   configure_base_system
   apply_omarchy_system
   # omarchy-apply-system restores the target pacman template. Layer the signed
-  # AArch64 repository back on it and provision the refresh hook for the owner.
+  # stable repository, complete channel mapping, and refresh hook back on it.
   write_omarchy_repository_configuration
   stage_first_boot_provisioning
   remove_profile_packages
