@@ -4,12 +4,21 @@ set -euo pipefail
 
 ROOT=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 readonly ROOT
+# shellcheck source=../sources.env
+source "$ROOT/sources.env"
 OMARCHY_TEST_SOURCE=${OMARCHY_TEST_SOURCE:-"$ROOT/../omarchy-aarch64"}
 OMARCHY_TEST_SOURCE=$(realpath -e -- "$OMARCHY_TEST_SOURCE")
 readonly OMARCHY_TEST_SOURCE
+OMARCHY_TEST_PACKAGES=${OMARCHY_TEST_PACKAGES:-"$ROOT/../omarchy-pkgs-aarch64"}
+OMARCHY_TEST_PACKAGES=$(realpath -e -- "$OMARCHY_TEST_PACKAGES")
+readonly OMARCHY_TEST_PACKAGES
 
-[[ -d $OMARCHY_TEST_SOURCE/.git ]] || {
+git -C "$OMARCHY_TEST_SOURCE" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
   echo "FAIL: set OMARCHY_TEST_SOURCE to an omarchy-aarch64 checkout" >&2
+  exit 1
+}
+git -C "$OMARCHY_TEST_PACKAGES" rev-parse --is-inside-work-tree >/dev/null 2>&1 || {
+  echo "FAIL: set OMARCHY_TEST_PACKAGES to an omarchy-pkgs-aarch64 checkout" >&2
   exit 1
 }
 
@@ -288,33 +297,70 @@ pass "AArch64 repository and exclusion manifests are disjoint"
   trap 'rm -rf "$fixture"' EXIT
   packages_json=$(
     read_list "$ROOT/config/omarchy-packages.aarch64" |
-      jq -R --arg source "$OMARCHY_AARCH64_REF" '
-        {name: ., version: (if . == "omarchy" then
-          "4.0.1.r1.g" + ($source[0:12]) + "-1"
+      jq -R --arg version "$OMARCHY_AARCH64_PACKAGE_VERSION" '
+        {name: ., version: (if (. == "omarchy" or . == "omarchy-settings") then
+          $version
         else "1-1" end)}
       ' | jq --slurp .
   )
   jq -n \
     --arg fingerprint "$OMARCHY_AARCH64_SIGNING_FINGERPRINT" \
+    --arg commit "$OMARCHY_PKGS_AARCH64_REF" \
     --argjson packages "$packages_json" '
       {
         schema: 1,
+        commit: $commit,
         generated_at: "2026-08-26T00:00:00Z",
         signing_fingerprint: $fingerprint,
         state: {
           schema: 1,
           architecture: "aarch64",
           channel: "stable",
+          commit: $commit,
+          package_base_count: 118,
           packages: $packages
         }
       }
     ' >"$fixture/repository-manifest.json"
   OMARCHY_SOURCE_COMMIT=$OMARCHY_AARCH64_REF
   validate_omarchy_repository_manifest "$fixture/repository-manifest.json"
-  [[ $OMARCHY_REPOSITORY_OMARCHY_VERSION == 4.0.1.r1.g"${OMARCHY_AARCH64_REF:0:12}"-1 ]] ||
+  [[ $OMARCHY_REPOSITORY_OMARCHY_VERSION == "$OMARCHY_AARCH64_PACKAGE_VERSION" ]] ||
     fail "repository/source version boundary was not captured"
-  pass "signed stable repository manifest is complete and matches the pinned Omarchy source"
+
+  rejects_manifest() {
+    if bash -c '
+      source "$1"
+      validate_omarchy_repository_manifest "$2"
+    ' _ "$ROOT/bin/build-image" "$1" >/dev/null 2>&1; then
+      fail "repository manifest accepted $2"
+    fi
+  }
+
+  jq '.commit = "0000000000000000000000000000000000000000"
+    | .state.commit = .commit' \
+    "$fixture/repository-manifest.json" >"$fixture/wrong-package-commit.json"
+  rejects_manifest "$fixture/wrong-package-commit.json" "the wrong package commit"
+  jq '(.state.packages[] | select(.name == "omarchy-settings").version) = "4.0.2-2"' \
+    "$fixture/repository-manifest.json" >"$fixture/wrong-runtime-version.json"
+  rejects_manifest "$fixture/wrong-runtime-version.json" "a divergent runtime package version"
+  pass "signed stable repository manifest matches the pinned source, package version, and package commit"
 )
+
+[[ $(git -C "$OMARCHY_TEST_PACKAGES" rev-parse HEAD) == "$OMARCHY_PKGS_AARCH64_REF" ]] ||
+  fail "package checkout does not match the immutable source pin"
+for package in omarchy omarchy-settings; do
+  read -r package_source package_version < <(
+    bash -c '
+      source "$1"
+      printf "%s %s-%s\n" "$_commit" "$pkgver" "$pkgrel"
+    ' _ "$OMARCHY_TEST_PACKAGES/pkgbuilds/$package/PKGBUILD"
+  )
+  [[ $package_source == "$OMARCHY_AARCH64_REF" ]] ||
+    fail "$package recipe does not pin the selected Omarchy source"
+  [[ $package_version == "$OMARCHY_AARCH64_PACKAGE_VERSION" ]] ||
+    fail "$package recipe version does not match the image input contract"
+done
+pass "pinned package recipes bind the exact Omarchy source and runtime package version"
 
 mapfile -t image_profiles < <(find "$ROOT/profiles" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort)
 [[ ${image_profiles[*]} == aarch64-virt ]] ||
@@ -341,8 +387,13 @@ pass "aarch64-virt consumes its adapted Limine and SPICE packages from the signe
 
 grep -Fq 'plymouth-set-default-theme omarchy' "$ROOT/bin/build-image" ||
   fail "image assembly does not explicitly select the Omarchy boot theme"
-grep -Fq 'LIMINE_FORCE_UEFI=yes limine-update' "$ROOT/bin/build-image" ||
-  fail "image assembly does not build the AArch64 UKI inside its offline chroot"
+grep -Fq 'mount_target_uefi_view' "$ROOT/bin/build-image" ||
+  fail "image assembly does not present its UEFI target to the offline chroot"
+grep -Fq 'target_chroot limine-update' "$ROOT/bin/build-image" ||
+  fail "image assembly does not build the AArch64 UKI through Limine's normal interface"
+if grep -R -q 'LIMINE_FORCE_UEFI' "$ROOT/bin"; then
+  fail "image assembly bypasses Limine's native UEFI detection"
+fi
 grep -Fq 'boot/EFI/Linux/omarchy_linux.efi' "$ROOT/bin/build-image" ||
   fail "image validation does not require the stable Omarchy UKI"
 grep -Fq "grep -Eq '^==> ERROR:|^ERROR:'" "$ROOT/bin/build-image" ||

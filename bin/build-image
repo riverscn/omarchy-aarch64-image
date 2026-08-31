@@ -385,7 +385,7 @@ resolve_node_tarball() {
 
 validate_omarchy_repository_manifest() {
   local manifest=${1:-$OMARCHY_REPOSITORY_MANIFEST}
-  local package source_fragment
+  local package version
 
   jq --exit-status \
     --arg fingerprint "$OMARCHY_AARCH64_SIGNING_FINGERPRINT" '
@@ -394,8 +394,16 @@ validate_omarchy_repository_manifest() {
       and .state.schema == 1
       and .state.architecture == "aarch64"
       and .state.channel == "stable"
+      and (.commit | type == "string" and length == 40)
+      and .state.commit == .commit
+      and (.state.package_base_count | type == "number" and . > 0 and floor == .)
       and (.generated_at | type == "string" and length > 0)
       and (.state.packages | type == "array")
+      and all(.state.packages[];
+        (.name | type == "string" and length > 0)
+        and (.version | type == "string" and length > 0))
+      and (([.state.packages[].name] | unique | length)
+        == (.state.packages | length))
     ' "$manifest" >/dev/null ||
     fail "Omarchy repository manifest has an unsupported identity or schema"
 
@@ -407,12 +415,15 @@ validate_omarchy_repository_manifest() {
   done < <(read_list "$CONFIG_DIR/omarchy-packages.aarch64")
 
   OMARCHY_REPOSITORY_GENERATED_AT=$(jq -r '.generated_at' "$manifest")
-  OMARCHY_REPOSITORY_OMARCHY_VERSION=$(
-    jq -r '.state.packages[] | select(.name == "omarchy") | .version' "$manifest"
-  )
-  source_fragment=".g${OMARCHY_SOURCE_COMMIT:0:12}-"
-  [[ $OMARCHY_REPOSITORY_OMARCHY_VERSION == *"$source_fragment"* ]] ||
-    fail "repository omarchy package $OMARCHY_REPOSITORY_OMARCHY_VERSION does not match source $OMARCHY_SOURCE_COMMIT"
+  [[ $(jq -r '.commit' "$manifest") == "$OMARCHY_PKGS_AARCH64_REF" ]] ||
+    fail "repository manifest was not produced by package commit $OMARCHY_PKGS_AARCH64_REF"
+  for package in omarchy omarchy-settings; do
+    version=$(jq -r --arg package "$package" \
+      '.state.packages[] | select(.name == $package) | .version' "$manifest")
+    [[ $version == "$OMARCHY_AARCH64_PACKAGE_VERSION" ]] ||
+      fail "repository $package package $version does not match expected $OMARCHY_AARCH64_PACKAGE_VERSION"
+    [[ $package != omarchy ]] || OMARCHY_REPOSITORY_OMARCHY_VERSION=$version
+  done
 }
 
 verify_omarchy_repository_key() {
@@ -955,6 +966,23 @@ stage_first_boot_provisioning() {
     "$wants/omarchy-provision-owner.service"
 }
 
+mount_target_uefi_view() {
+  local firmware_view="$MOUNT_DIR/sys/firmware"
+
+  [[ -d $firmware_view ]] || fail "the target sysfs has no firmware mount point"
+  # The completed image is explicitly a UEFI target, but an offline chroot has
+  # no firmware of its own. Present that target capability through the same
+  # /sys/firmware/efi contract Limine uses on a booted system. This changes
+  # only the disposable chroot view and never bypasses Limine's detection.
+  mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs "$firmware_view"
+  install -d -m755 "$firmware_view/efi"
+}
+
+unmount_target_uefi_view() {
+  umount "$MOUNT_DIR/sys/firmware" ||
+    fail "could not remove the target UEFI firmware view"
+}
+
 configure_limine() {
   local root_uuid cmdline boot_output boot_status=0
   root_uuid=$(blkid -s UUID -o value "${LOOP_DEVICE}p2")
@@ -970,12 +998,10 @@ configure_limine() {
   assert_target_boot_hooks_restored
   log "Selecting the Omarchy Plymouth theme"
   target_chroot plymouth-set-default-theme omarchy
-  # The image is assembled in a chroot without the target firmware mounted.
-  # Force the UEFI capability check so limine-update follows the same UKI path
-  # as an installed Omarchy system. Its pacman hook keeps that UKI current when
-  # the kernel or initramfs inputs are upgraded later.
+  mount_target_uefi_view
   log "Building the Omarchy AArch64 UKI and Limine recovery stack"
-  boot_output=$(target_chroot env LIMINE_FORCE_UEFI=yes limine-update 2>&1) || boot_status=$?
+  boot_output=$(target_chroot limine-update 2>&1) || boot_status=$?
+  unmount_target_uefi_view
   printf '%s\n' "$boot_output"
   ((boot_status == 0)) || fail "the final AArch64 UKI build failed"
   if grep -Eq '^==> ERROR:|^ERROR:' <<<"$boot_output"; then

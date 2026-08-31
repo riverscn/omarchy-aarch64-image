@@ -40,8 +40,9 @@ rejects the snapshot unless all of these conditions hold:
 - the manifest is the stable AArch64 schema expected by this project;
 - its signing fingerprint matches the fingerprint pinned in `sources.env`;
 - every package selected by `config/omarchy-packages.aarch64` is present;
-- the published `omarchy` package was built from the selected
-  `omarchy-aarch64` source commit; and
+- the manifest was assembled by the exact pinned package-repository commit;
+- that reviewed package commit pins the selected `omarchy-aarch64` source and
+  exact `omarchy`/`omarchy-settings` package version; and
 - pacman verifies the signed database and packages with the trusted key.
 
 The image installs `omarchy-aarch64-keyring`, so subsequent keyring updates are
@@ -81,6 +82,10 @@ image build fails instead of combining mismatched source and packages.
   direct firmware entry automatically because doing so bypasses Limine and its
   snapshot menu. When reusing UEFI variable storage from an older test image,
   disable its existing `Omarchy` direct-boot entry before testing this path.
+- During offline assembly, the builder exposes an isolated
+  `/sys/firmware/efi` view only inside the disposable target chroot. Limine
+  therefore follows its normal firmware-detection path; the package carries no
+  environment-variable bypass and the host firmware state is not modified.
 - VirtIO graphics, disk, network, RNG, QEMU guest-agent, SPICE clipboard and
   dynamic-display integration.
 - QEMU 9p host-directory sharing preconfigured at `/mnt/hostshare` with the
@@ -213,8 +218,9 @@ The local repository is mounted read-only and is used only while assembling
 the image. The installed guest still points at the explicit stable GitHub
 Release, so a successful test image follows the normal stable update channel
 without rebuilding.
-The source commit must match the `omarchy` version recorded in the repository
-manifest.
+The source commit, package-repository commit, and expected runtime package
+version must match the immutable inputs in `sources.env` and the complete
+package state recorded in the repository manifest.
 
 The Arch Linux ARM rootfs is verified with its signing key and pinned signer
 fingerprint. Node.js is checked against its published SHA-256 list. Cached

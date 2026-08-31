@@ -103,6 +103,7 @@ jobs:
       - name: Run release contracts
         env:
           OMARCHY_TEST_SOURCE: build/dependencies/omarchy-aarch64
+          OMARCHY_TEST_PACKAGES: build/dependencies/omarchy-pkgs-aarch64
         run: ./tests/run
 
       - name: Build and verify the QCOW2 image
