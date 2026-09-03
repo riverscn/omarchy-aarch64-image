@@ -82,7 +82,7 @@ pass "UTM template is a clean AArch64 virt configuration without EFI state"
   : >"$fixture/test.orphans.txt"
 
   OMARCHY_UTM_PART_SIZE_MIB=1 "$ROOT/bin/package-utm-release" \
-    --tag v4.0.1-test.1 \
+    --tag v4.0.2-test.1 \
     --image "$fixture/test.qcow2" \
     --provenance "$fixture/image-provenance.txt" \
     --output "$fixture/release" >/dev/null
@@ -121,7 +121,7 @@ with zipfile.ZipFile(archive_path) as archive:
 with open(manifest_path, encoding="utf-8") as stream:
     manifest = json.load(stream)
 assert manifest["schema"] == 1
-assert manifest["release_tag"] == "v4.0.1-test.1"
+assert manifest["release_tag"] == "v4.0.2-test.1"
 assert manifest["template"]["efi_variable_storage"] == "omitted-and-created-by-utm"
 assert len(manifest["utm_archive"]["parts"]) >= 2
 

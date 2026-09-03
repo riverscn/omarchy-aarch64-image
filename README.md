@@ -129,7 +129,7 @@ and Node.js download cache, builds the QCOW2, runs `qemu-img check`, and then
 creates a draft Release. The draft is published only after GitHub reports the
 same SHA-256 digest for every uploaded asset.
 
-Create a version tag such as `v4.0.1-virt.1`, or run the workflow manually and
+Create a version tag such as `v4.0.2-virt.1`, or run the workflow manually and
 provide that tag. The Release does not duplicate the disk as a standalone
 QCOW2. It contains:
 
@@ -164,7 +164,7 @@ users.
 For local release-layout testing after building an image:
 
 ```bash
-./bin/package-utm-release --tag v4.0.1-virt.1
+./bin/package-utm-release --tag v4.0.2-virt.1
 ```
 
 Set `OMARCHY_UTM_CONSUME_IMAGE=1` only in storage-constrained automation: after
