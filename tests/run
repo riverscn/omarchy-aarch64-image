@@ -222,14 +222,17 @@ fi
     "$MOUNT_DIR/etc/skel/.config/omarchy/hooks/pre-refresh-pacman.d/omarchy-aarch64-repository" ||
     fail "image duplicated the runtime refresh hook instead of installing it"
 
-  for package in kdenlive libreoffice-fresh moonlight-qt hyprsunset gpu-screen-recorder; do
+  for package in gpu-screen-recorder obs-studio qemu-user-static-binfmt; do
     grep -qx "$package" "$PROFILE_DIR/excluded-packages" ||
-      fail "aarch64-virt still installs unsupported/oversized package: $package"
+      fail "aarch64-virt no longer excludes unsupported package: $package"
   done
-  for package in clang llvm docker docker-buildx docker-compose lazydocker mariadb-libs \
-    postgresql-libs python-poetry-core ruby tree-sitter-cli; do
+  for package in asdcontrol bluez bluez-tools bluez-utils bolt brightnessctl \
+    clang ddcutil docker docker-buildx docker-compose hyprland-preview-share-picker \
+    hyprsunset kdenlive lazydocker libreoffice-fresh mariadb-libs moonlight-qt \
+    postgresql-libs power-profiles-daemon python-poetry-core ruby tree-sitter-cli \
+    wireless-regdb; do
     if grep -qx "$package" "$PROFILE_DIR/excluded-packages"; then
-      fail "aarch64-virt still excludes an upstream development package: $package"
+      fail "aarch64-virt still excludes a supported upstream default: $package"
     fi
   done
   for package in bindfs dotnet-runtime-bin obsidian pinta tensaku tzupdate ufw-docker tobi-try \
@@ -247,53 +250,6 @@ fi
     grep -qx "$package" "$PROFILE_DIR/runtime-packages" ||
       fail "aarch64-virt audio stack is missing: $package"
   done
-
-  shell_profile="$OMARCHY_TEST_PACKAGES/pkgbuilds/omarchy-aarch64-config/shell-defaults.jq"
-  [[ -f $shell_profile ]] || fail "managed AArch64 runtime profile has no shell filter"
-  shell_defaults=$(jq -f "$shell_profile" \
-    "$OMARCHY_TEST_SOURCE/config/omarchy/shell.json")
-  jq -e '
-    ([.bar.layout.left[], .bar.layout.center[], .bar.layout.right[]]
-      | map(select(.id == "omarchy.indicators"))[0].items)
-      == ["Dictation", "Reminder", "Dnd", "StayAwake"]
-    and ([.bar.layout.left[], .bar.layout.center[], .bar.layout.right[]]
-      | map(if type == "object" then (.id // "") else tostring end)
-      | index("omarchy.bluetooth") == null)
-    and (.disabledPlugins | index("omarchy.bluetooth") != null)
-    and (.disabledPlugins | index("omarchy.nightlight") != null)
-  ' <<<"$shell_defaults" >/dev/null ||
-    fail "aarch64-virt shell defaults retain Night Light or Screen Recording"
-
-  node - "$OMARCHY_TEST_SOURCE" "$OMARCHY_TEST_PACKAGES" <<'NODE'
-const fs = require("fs")
-const path = require("path")
-
-const source = process.argv[2]
-const packages = process.argv[3]
-const menu = require(path.join(source, "shell/plugins/menu/MenuModel.js"))
-const defaults = menu.parseMenuJsonc(fs.readFileSync(
-  path.join(source, "default/omarchy/omarchy-menu.jsonc"), "utf8"))
-const overlays = menu.parseMenuJsonc(fs.readFileSync(
-  path.join(packages, "pkgbuilds/omarchy-aarch64-config/omarchy-menu.jsonc"), "utf8"), true)
-const defaultById = Object.fromEntries(defaults.map(item => [item.id, item]))
-const merged = menu.mergeMenuSources(defaults.concat(overlays), []).items
-
-for (const overlay of overlays) {
-  const original = defaultById[overlay.id]
-  const result = merged[overlay.id]
-  if (!original) throw new Error(`system menu overlay has no upstream item: ${overlay.id}`)
-  if (!result) throw new Error(`system menu overlay removed its item: ${overlay.id}`)
-  for (const [key, value] of Object.entries(original)) {
-    if (!(key in overlay) && JSON.stringify(result[key]) !== JSON.stringify(value))
-      throw new Error(`system menu overlay erased ${overlay.id}.${key}`)
-  }
-  for (const [key, value] of Object.entries(overlay)) {
-    if (JSON.stringify(result[key]) !== JSON.stringify(value))
-      throw new Error(`system menu overlay did not apply ${overlay.id}.${key}`)
-  }
-}
-NODE
-  pass "package-managed system menu overlays preserve upstream menu definitions"
 
   output_fixture="$fixture/output.qcow2"
   OUTPUT_PATH="$output_fixture"
@@ -331,7 +287,10 @@ pass "AArch64 repository and exclusion manifests are disjoint"
 cmp -s "$ROOT/profiles/aarch64-virt/excluded-packages" \
   "$OMARCHY_TEST_PACKAGES/pkgbuilds/omarchy-aarch64-config/excluded-packages" ||
   fail "image-build and upgrade-time package exclusions have drifted"
-pass "image and package-managed runtime profiles share one exclusion policy"
+cmp -s "$ROOT/profiles/aarch64-virt/package-replacements" \
+  "$OMARCHY_TEST_PACKAGES/pkgbuilds/omarchy-aarch64-config/package-replacements" ||
+  fail "image-build and upgrade-time package replacements have drifted"
+pass "image and package-managed runtime profiles share one package policy"
 
 (
   # shellcheck source=../bin/build-image
@@ -564,8 +523,8 @@ grep -Fq 'gpgconf --homedir /etc/pacman.d/gnupg --kill all' "$ROOT/bin/build-ima
   fail "image assembly does not stop the pacman keyring agent before unmounting"
 grep -Fq 'process_root == "$MOUNT_DIR"' "$ROOT/bin/build-image" ||
   fail "target helper cleanup is not scoped to the disposable image root"
-grep -Fq 'managed-packages' "$ROOT/bin/build-image" ||
-  fail "the image does not record packages managed by the Omarchy repository"
+grep -Fq 'package-replacements' "$ROOT/bin/build-image" ||
+  fail "the image does not preserve package replacements for reinstall workflows"
 grep -Fq 'validate_omarchy_repository_manifest' "$ROOT/bin/build-image" ||
   fail "the image can combine a repository snapshot with a different Omarchy source commit"
 grep -Fq 'etc/omarchy-aarch64/excluded-packages' "$ROOT/bin/build-image" ||

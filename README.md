@@ -100,15 +100,17 @@ image build fails instead of combining mismatched source and packages.
   attached.
 - PipeWire audio with PulseAudio, ALSA, JACK, and GStreamer compatibility. The
   printing stack is retained.
-- The Omarchy desktop and development environment, excluding LibreOffice,
-  Kdenlive, Moonlight, Night Light, and GPU screen recording for this VM
-  profile.
+- The upstream Omarchy desktop and development defaults whenever a native
+  package is available, including LibreOffice, Kdenlive, Moonlight, Night
+  Light, Bluetooth userspace, and power profiles. GPU screen recording and OBS
+  remain excluded until their generic AArch64 VM runtime is validated.
 - The architecture-compatible Omarchy applications Obsidian, Pinta, Tensaku,
   and tzupdate. Pinta uses the maintained Microsoft binary .NET runtime; the
   .NET SDK remains a package-build dependency and is not installed in the VM.
-- No `linux-firmware`, split `linux-firmware-*`, `sof-firmware`, Bluetooth,
-  Thunderbolt, DDC/backlight, wireless-regulatory, or physical power-profile
-  stack.
+- No `linux-firmware`, split `linux-firmware-*`, or `sof-firmware` payload is
+  carried for the virtual hardware profile. Physical-machine setup is skipped,
+  while portable upstream userspace packages remain installed. QEMU user-mode
+  emulation is not installed or used.
 - A tty1 first-boot wizard for keyboard, owner credentials, Git identity,
   hostname, and timezone before SDDM starts.
 - An idempotent service that expands the root partition and Btrfs filesystem
@@ -268,7 +270,7 @@ UID/GID lookup or `chown` is needed.
 
 Everything specific to `aarch64-virt` lives under
 `profiles/aarch64-virt/`: image defaults, package additions/exclusions,
-replacement and removal rules, shell defaults, and the filesystem overlay.
+replacement and removal rules, and the filesystem overlay.
 Package removal is performed through pacman rather than by deleting owned files.
 
 Run the static contract suite with the source repository as a sibling:

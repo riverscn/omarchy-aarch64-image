@@ -905,32 +905,16 @@ EOF
   # /usr. Since image assembly runs as root, copied overlay entries become
   # root-owned while the existing rootfs ownership remains intact.
   cp -a --no-preserve=ownership "$OVERLAY_DIR/." "$MOUNT_DIR/"
-  apply_profile_shell_defaults
   chmod 755 "$MOUNT_DIR/usr/lib/omarchy-aarch64/grow-root"
   chmod 755 "$MOUNT_DIR/usr/lib/omarchy-aarch64/setup-hostshare"
   install -d -m755 "$MOUNT_DIR/etc/omarchy-aarch64"
   printf '%s\n' "$IMAGE_PROFILE" >"$MOUNT_DIR/etc/omarchy-aarch64/profile"
   read_list "$PROFILE_DIR/excluded-packages" \
     >"$MOUNT_DIR/etc/omarchy-aarch64/excluded-packages"
-  read_list "$CONFIG_DIR/omarchy-packages.aarch64" \
-    >"$MOUNT_DIR/etc/omarchy-aarch64/managed-packages"
+  read_list "$PROFILE_DIR/package-replacements" \
+    >"$MOUNT_DIR/etc/omarchy-aarch64/package-replacements"
   target_chroot systemctl enable omarchy-aarch64-grow-root.service
   target_chroot systemctl enable omarchy-aarch64-hostshare.service
-}
-
-apply_profile_shell_defaults() {
-  local defaults="$MOUNT_DIR/etc/skel/.config/omarchy/shell.json"
-  local filter="$MOUNT_DIR/usr/share/omarchy/system/shell-defaults.jq"
-  local staged="$defaults.profile"
-
-  [[ -f $defaults ]] || fail "Omarchy shell defaults are missing from /etc/skel"
-  [[ -f $filter ]] || fail "the managed AArch64 runtime profile is missing its shell filter"
-  if ! jq --exit-status -f "$filter" "$defaults" >"$staged"; then
-    rm -f -- "$staged"
-    fail "failed to apply $IMAGE_PROFILE shell defaults"
-  fi
-  install -m644 "$staged" "$defaults"
-  rm -f -- "$staged"
 }
 
 apply_omarchy_system() {
@@ -1120,6 +1104,7 @@ validate_target() {
     etc/mkinitcpio.conf.d/omarchy_hooks.conf
     etc/mkinitcpio.conf.d/zz-omarchy-aarch64-virt.conf
     etc/omarchy-aarch64/excluded-packages
+    etc/omarchy-aarch64/package-replacements
     etc/omarchy-aarch64/profile
     etc/pacman.d/omarchy-aarch64.conf
     etc/plymouth/plymouthd.conf
@@ -1242,17 +1227,6 @@ validate_target() {
     fail "target validation failed: profile-excluded packages remain installed: ${removed_packages[*]}"
   [[ $(<"$MOUNT_DIR/etc/omarchy-aarch64/profile") == "$IMAGE_PROFILE" ]] ||
     fail "target validation failed: image profile marker is incorrect"
-  jq --exit-status '
-    ([.bar.layout.left[], .bar.layout.center[], .bar.layout.right[]]
-      | map(select(.id == "omarchy.indicators"))[0].items)
-      == ["Dictation", "Reminder", "Dnd", "StayAwake"]
-    and ([.bar.layout.left[], .bar.layout.center[], .bar.layout.right[]]
-      | map(if type == "object" then (.id // "") else tostring end)
-      | index("omarchy.bluetooth") == null)
-    and (.disabledPlugins | index("omarchy.bluetooth") != null)
-    and (.disabledPlugins | index("omarchy.nightlight") != null)
-  ' "$MOUNT_DIR/etc/skel/.config/omarchy/shell.json" >/dev/null ||
-    fail "target validation failed: virtual-only shell indicators remain enabled"
   target_chroot getent passwd alarm >/dev/null 2>&1 &&
     fail "target validation failed: the default alarm account still exists"
   [[ ! -s $MOUNT_DIR/etc/machine-id ]] ||
