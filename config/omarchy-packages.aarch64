@@ -1,6 +1,7 @@
 # Packages installed and updated from the signed [omarchy] AArch64 repository.
 bindfs
 omarchy-aarch64-keyring
+omarchy-aarch64-config
 omarchy-keyring
 limine-mkinitcpio-hook
 limine-snapper-sync

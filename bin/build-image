@@ -227,7 +227,7 @@ validate_configuration() {
   [[ -d $OMARCHY_SOURCE_DIR/.git ]] || fail "Omarchy source is unavailable"
   [[ -d $OVERLAY_DIR ]] || fail "profile overlay not found: $OVERLAY_DIR"
   for profile_file in excluded-packages package-replacements \
-    remove-package-patterns runtime-packages shell-defaults.jq; do
+    remove-package-patterns runtime-packages; do
     [[ -f $PROFILE_DIR/$profile_file ]] || fail "profile is missing $profile_file: $IMAGE_PROFILE"
   done
   case $IMAGE_FORMAT in
@@ -920,10 +920,11 @@ EOF
 
 apply_profile_shell_defaults() {
   local defaults="$MOUNT_DIR/etc/skel/.config/omarchy/shell.json"
-  local filter="$PROFILE_DIR/shell-defaults.jq"
+  local filter="$MOUNT_DIR/usr/share/omarchy/system/shell-defaults.jq"
   local staged="$defaults.profile"
 
   [[ -f $defaults ]] || fail "Omarchy shell defaults are missing from /etc/skel"
+  [[ -f $filter ]] || fail "the managed AArch64 runtime profile is missing its shell filter"
   if ! jq --exit-status -f "$filter" "$defaults" >"$staged"; then
     rm -f -- "$staged"
     fail "failed to apply $IMAGE_PROFILE shell defaults"
@@ -1215,7 +1216,8 @@ validate_target() {
   fi
   target_chroot pacman-key --list-keys "$OMARCHY_AARCH64_SIGNING_FINGERPRINT" >/dev/null ||
     fail "target validation failed: the Omarchy AArch64 signing key is not trusted"
-  target_chroot pacman -Q bindfs omarchy-aarch64-keyring omarchy omarchy-settings omarchy-spice-guest-tools \
+  target_chroot pacman -Q bindfs omarchy-aarch64-keyring omarchy-aarch64-config \
+    omarchy omarchy-settings omarchy-spice-guest-tools \
     limine limine-mkinitcpio-hook limine-snapper-sync plymouth snapper \
     gst-plugin-pipewire pipewire pipewire-alsa \
     pipewire-audio pipewire-jack pipewire-pulse wireplumber >/dev/null
@@ -1244,6 +1246,10 @@ validate_target() {
     ([.bar.layout.left[], .bar.layout.center[], .bar.layout.right[]]
       | map(select(.id == "omarchy.indicators"))[0].items)
       == ["Dictation", "Reminder", "Dnd", "StayAwake"]
+    and ([.bar.layout.left[], .bar.layout.center[], .bar.layout.right[]]
+      | map(if type == "object" then (.id // "") else tostring end)
+      | index("omarchy.bluetooth") == null)
+    and (.disabledPlugins | index("omarchy.bluetooth") != null)
     and (.disabledPlugins | index("omarchy.nightlight") != null)
   ' "$MOUNT_DIR/etc/skel/.config/omarchy/shell.json" >/dev/null ||
     fail "target validation failed: virtual-only shell indicators remain enabled"

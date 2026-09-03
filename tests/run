@@ -232,7 +232,8 @@ fi
       fail "aarch64-virt still excludes an upstream development package: $package"
     fi
   done
-  for package in bindfs dotnet-runtime-bin obsidian pinta tensaku tzupdate ufw-docker tobi-try; do
+  for package in bindfs dotnet-runtime-bin obsidian pinta tensaku tzupdate ufw-docker tobi-try \
+    omarchy-aarch64-config; do
     grep -qx "$package" "$ROOT/config/omarchy-packages.aarch64" ||
       fail "required Omarchy repository package is not selected: $package"
   done
@@ -247,15 +248,52 @@ fi
       fail "aarch64-virt audio stack is missing: $package"
   done
 
-  shell_defaults=$(jq -f "$PROFILE_DIR/shell-defaults.jq" \
+  shell_profile="$OMARCHY_TEST_PACKAGES/pkgbuilds/omarchy-aarch64-config/shell-defaults.jq"
+  [[ -f $shell_profile ]] || fail "managed AArch64 runtime profile has no shell filter"
+  shell_defaults=$(jq -f "$shell_profile" \
     "$OMARCHY_TEST_SOURCE/config/omarchy/shell.json")
   jq -e '
     ([.bar.layout.left[], .bar.layout.center[], .bar.layout.right[]]
       | map(select(.id == "omarchy.indicators"))[0].items)
       == ["Dictation", "Reminder", "Dnd", "StayAwake"]
+    and ([.bar.layout.left[], .bar.layout.center[], .bar.layout.right[]]
+      | map(if type == "object" then (.id // "") else tostring end)
+      | index("omarchy.bluetooth") == null)
+    and (.disabledPlugins | index("omarchy.bluetooth") != null)
     and (.disabledPlugins | index("omarchy.nightlight") != null)
   ' <<<"$shell_defaults" >/dev/null ||
     fail "aarch64-virt shell defaults retain Night Light or Screen Recording"
+
+  node - "$OMARCHY_TEST_SOURCE" "$OMARCHY_TEST_PACKAGES" <<'NODE'
+const fs = require("fs")
+const path = require("path")
+
+const source = process.argv[2]
+const packages = process.argv[3]
+const menu = require(path.join(source, "shell/plugins/menu/MenuModel.js"))
+const defaults = menu.parseMenuJsonc(fs.readFileSync(
+  path.join(source, "default/omarchy/omarchy-menu.jsonc"), "utf8"))
+const overlays = menu.parseMenuJsonc(fs.readFileSync(
+  path.join(packages, "pkgbuilds/omarchy-aarch64-config/omarchy-menu.jsonc"), "utf8"), true)
+const defaultById = Object.fromEntries(defaults.map(item => [item.id, item]))
+const merged = menu.mergeMenuSources(defaults.concat(overlays), []).items
+
+for (const overlay of overlays) {
+  const original = defaultById[overlay.id]
+  const result = merged[overlay.id]
+  if (!original) throw new Error(`system menu overlay has no upstream item: ${overlay.id}`)
+  if (!result) throw new Error(`system menu overlay removed its item: ${overlay.id}`)
+  for (const [key, value] of Object.entries(original)) {
+    if (!(key in overlay) && JSON.stringify(result[key]) !== JSON.stringify(value))
+      throw new Error(`system menu overlay erased ${overlay.id}.${key}`)
+  }
+  for (const [key, value] of Object.entries(overlay)) {
+    if (JSON.stringify(result[key]) !== JSON.stringify(value))
+      throw new Error(`system menu overlay did not apply ${overlay.id}.${key}`)
+  }
+}
+NODE
+  pass "package-managed system menu overlays preserve upstream menu definitions"
 
   output_fixture="$fixture/output.qcow2"
   OUTPUT_PATH="$output_fixture"
@@ -289,6 +327,11 @@ comm -12 \
   <(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$ROOT/profiles/aarch64-virt/excluded-packages" | sort) |
   grep -q . && fail "a package is both repository-managed and excluded"
 pass "AArch64 repository and exclusion manifests are disjoint"
+
+cmp -s "$ROOT/profiles/aarch64-virt/excluded-packages" \
+  "$OMARCHY_TEST_PACKAGES/pkgbuilds/omarchy-aarch64-config/excluded-packages" ||
+  fail "image-build and upgrade-time package exclusions have drifted"
+pass "image and package-managed runtime profiles share one exclusion policy"
 
 (
   # shellcheck source=../bin/build-image
@@ -340,7 +383,7 @@ pass "AArch64 repository and exclusion manifests are disjoint"
     | .state.commit = .commit' \
     "$fixture/repository-manifest.json" >"$fixture/wrong-package-commit.json"
   rejects_manifest "$fixture/wrong-package-commit.json" "the wrong package commit"
-  jq '(.state.packages[] | select(.name == "omarchy-settings").version) = "4.0.2-3"' \
+  jq '(.state.packages[] | select(.name == "omarchy-settings").version) = "4.0.2-2"' \
     "$fixture/repository-manifest.json" >"$fixture/wrong-runtime-version.json"
   rejects_manifest "$fixture/wrong-runtime-version.json" "a divergent runtime package version"
   pass "signed stable repository manifest matches the pinned source, package version, and package commit"
@@ -377,7 +420,7 @@ if grep -Eq '^[[:space:]]*(protocol: linux|path: boot\(\):/Image|module_path:)' 
   "$OMARCHY_TEST_SOURCE/default/limine/limine.conf"; then
   fail "the AArch64 fork still carries a static kernel/initramfs boot entry"
 fi
-for package in limine-mkinitcpio-hook omarchy-spice-guest-tools; do
+for package in limine-mkinitcpio-hook omarchy-aarch64-config omarchy-spice-guest-tools; do
   grep -qx "$package" "$ROOT/config/omarchy-packages.aarch64" ||
     fail "signed repository package is not selected: $package"
 done
