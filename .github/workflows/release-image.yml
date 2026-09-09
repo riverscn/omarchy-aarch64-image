@@ -83,7 +83,8 @@ jobs:
             /opt/ghc
           docker system prune --all --force --volumes
           sudo apt-get update
-          sudo apt-get install --yes --no-install-recommends qemu-utils
+          sudo apt-get install --yes --no-install-recommends \
+            qemu-utils qemu-system-arm qemu-efi-aarch64 tesseract-ocr
           df -h /
 
       - name: Set up native Buildx
@@ -117,6 +118,18 @@ jobs:
           qemu-img check build/omarchy-aarch64-virt.qcow2
           (cd build && sha256sum --check omarchy-aarch64-virt.qcow2.sha256)
           df -h /
+
+      - name: Verify first boot in a disposable VM
+        run: python3 tests/boot-smoke.py build/omarchy-aarch64-virt.qcow2 build/boot-evidence
+
+      - name: Upload VM boot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-image-boot-${{ github.run_id }}
+          path: build/boot-evidence
+          if-no-files-found: ignore
+          retention-days: 14
 
       # Save before packaging/upload so a later Release API failure does not
       # discard the already verified rootfs and Node.js inputs.

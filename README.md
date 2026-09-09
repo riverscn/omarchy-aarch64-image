@@ -125,9 +125,14 @@ key embedded in a reusable disk image.
 The `Publish AArch64 UTM image` workflow builds on GitHub's native
 `ubuntu-24.04-arm` runner. It checks out the reviewed Omarchy source and native
 builder revisions recorded in `sources.env`, restores only the signed rootfs
-and Node.js download cache, builds the QCOW2, runs `qemu-img check`, and then
+and Node.js download cache, builds the QCOW2, runs `qemu-img check`, boots a
+disposable snapshot to the owner greeter and keyboard setup screen, and then
 creates a draft Release. The draft is published only after GitHub reports the
 same SHA-256 digest for every uploaded asset.
+
+The boot smoke test uses a system VM on the native ARM runner and uploads
+screenshots and logs. It does not use QEMU user emulation for package builds,
+modify the release disk, or replace full desktop acceptance testing.
 
 Create a version tag such as `v4.0.3-virt.1`, or run the workflow manually and
 provide that tag. The Release does not duplicate the disk as a standalone

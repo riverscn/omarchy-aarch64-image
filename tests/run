@@ -484,9 +484,16 @@ grep -Fq "OMARCHY_UTM_CONSUME_IMAGE: '1'" "$ROOT/.github/workflows/release-image
 grep -Fq 'qemu-img check build/omarchy-aarch64-virt.qcow2' \
   "$ROOT/.github/workflows/release-image.yml" ||
   fail "the release workflow does not validate the finished QCOW2"
-if grep -Fq 'actions/upload-artifact' "$ROOT/.github/workflows/release-image.yml"; then
-  fail "the multi-gigabyte image is copied through Actions artifact storage"
-fi
+python3 - "$ROOT/.github/workflows/release-image.yml" <<'PY'
+import pathlib, re, sys
+workflow = pathlib.Path(sys.argv[1]).read_text()
+uploads = [step for step in re.split(r"(?m)^      - name:", workflow)
+           if "actions/upload-artifact" in step]
+assert len(uploads) == 1, "Only VM boot evidence may use Actions artifact storage"
+assert re.search(r"(?m)^          path: build/boot-evidence$", uploads[0]), \
+    "The multi-gigabyte image must not use Actions artifact storage"
+assert "python3 tests/boot-smoke.py" in workflow, "Image publication must verify first boot"
+PY
 grep -Fq 'uses: actions/cache/save@v6' "$ROOT/.github/workflows/release-image.yml" ||
   fail "verified rolling inputs are only cached after the entire Release succeeds"
 grep -Fq -- '--notes-file RELEASE_NOTES.md' "$ROOT/.github/workflows/release-image.yml" &&
