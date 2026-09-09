@@ -34,7 +34,7 @@ def main():
                 "-device", "virtio-gpu-pci", "-device", "qemu-xhci",
                 "-device", "usb-kbd", "-device", "usb-tablet",
                 "-device", "virtio-rng-pci",
-                "-netdev", "user,id=network", "-device", "virtio-net-pci,netdev=network",
+                "-netdev", "user,id=network", "-device", "virtio-net-pci,netdev=network,romfile=",
                 "-display", "none", "-serial", f"file:{evidence / 'serial.log'}",
                 "-qmp", f"unix:{qmp_path},server=on,wait=off",
             ], stdout=log, stderr=subprocess.STDOUT)
@@ -46,7 +46,14 @@ def main():
                     time.sleep(1)
                 with socket.socket(socket.AF_UNIX) as connection:
                     connection.settimeout(30)
-                    connection.connect(str(qmp_path))
+                    while True:
+                        if vm.poll() is not None or time.monotonic() >= deadline:
+                            raise RuntimeError("QEMU monitor did not become ready; inspect qemu.log")
+                        try:
+                            connection.connect(str(qmp_path))
+                            break
+                        except (ConnectionRefusedError, FileNotFoundError):
+                            time.sleep(1)
                     stream = connection.makefile("rwb")
                     json.loads(stream.readline())
 

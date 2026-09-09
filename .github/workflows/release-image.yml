@@ -119,18 +119,6 @@ jobs:
           (cd build && sha256sum --check omarchy-aarch64-virt.qcow2.sha256)
           df -h /
 
-      - name: Verify first boot in a disposable VM
-        run: python3 tests/boot-smoke.py build/omarchy-aarch64-virt.qcow2 build/boot-evidence
-
-      - name: Upload VM boot evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: aarch64-image-boot-${{ github.run_id }}
-          path: build/boot-evidence
-          if-no-files-found: ignore
-          retention-days: 14
-
       # Save before packaging/upload so a later Release API failure does not
       # discard the already verified rootfs and Node.js inputs.
       - name: Save verified rolling inputs
@@ -145,6 +133,18 @@ jobs:
             build/cache/node-SHASUMS256.txt
             build/cache/node-v*-linux-arm64.tar.gz
           key: image-inputs-${{ runner.arch }}-${{ hashFiles('sources.env') }}-${{ steps.sources.outputs.cache_week }}
+
+      - name: Verify first boot in a disposable VM
+        run: python3 tests/boot-smoke.py build/omarchy-aarch64-virt.qcow2 build/boot-evidence
+
+      - name: Upload VM boot evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aarch64-image-boot-${{ github.run_id }}
+          path: build/boot-evidence
+          if-no-files-found: ignore
+          retention-days: 14
 
       - name: Resolve release tag
         id: release
