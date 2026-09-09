@@ -27,7 +27,9 @@ def main():
         with (evidence / "qemu.log").open("w") as log:
             vm = subprocess.Popen([
                 "qemu-system-aarch64", "-machine", "virt,gic-version=3",
-                "-accel", "tcg", "-cpu", "max", "-smp", "2", "-m", "4096",
+                # Pin an ARMv8 baseline: older runner QEMU's max CPU exposes
+                # MOPS emulation that can panic newer kernels in __memset.
+                "-accel", "tcg", "-cpu", "cortex-a72", "-smp", "2", "-m", "4096",
                 "-bios", str(firmware), "-snapshot",
                 # Extra diagnostics affect only this disposable VM, not the image.
                 "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra="
@@ -85,6 +87,9 @@ def main():
                     while time.monotonic() < deadline:
                         if vm.poll() is not None:
                             raise RuntimeError("QEMU exited before setup appeared")
+                        serial = (evidence / "serial.log").read_text(errors="replace")
+                        if "Kernel panic - not syncing" in serial:
+                            raise RuntimeError("Guest kernel panicked; inspect serial.log")
                         screenshot = evidence / "latest.ppm"
                         qmp("screendump", {"filename": str(screenshot)})
                         result = subprocess.run(
