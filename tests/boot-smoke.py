@@ -29,11 +29,18 @@ def main():
                 "qemu-system-aarch64", "-machine", "virt,gic-version=3",
                 "-accel", "tcg", "-cpu", "max", "-smp", "2", "-m", "4096",
                 "-bios", str(firmware), "-snapshot",
+                # Extra diagnostics affect only this disposable VM, not the image.
+                "-smbios", "type=11,value=io.systemd.stub.kernel-cmdline-extra="
+                "loglevel=7 systemd.show_status=true systemd.log_level=info "
+                "systemd.log_target=console rd.udev.log_level=info",
                 "-drive", f"if=none,file={image},format=qcow2,id=system",
                 "-device", "virtio-blk-pci,drive=system",
                 "-device", "virtio-gpu-pci", "-device", "qemu-xhci",
                 "-device", "usb-kbd", "-device", "usb-tablet",
                 "-device", "virtio-rng-pci",
+                "-device", "virtio-serial-pci",
+                "-chardev", f"socket,path={work}/agent.sock,server=on,wait=off,id=agent",
+                "-device", "virtserialport,chardev=agent,name=org.qemu.guest_agent.0",
                 "-netdev", "user,id=network", "-device", "virtio-net-pci,netdev=network,romfile=",
                 "-display", "none", "-serial", f"file:{evidence / 'serial.log'}",
                 "-qmp", f"unix:{qmp_path},server=on,wait=off",
